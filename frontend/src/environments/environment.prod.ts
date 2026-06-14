@@ -4,5 +4,5 @@
 // know it hasn't been swapped yet.
 export const environment = {
   production: true,
-  apiUrl: "https://REPLACE-ME-WITH-YOUR-BACKEND-URL.example.com",
+  apiUrl: "https://wickets-backend.onrender.com/",
 };
