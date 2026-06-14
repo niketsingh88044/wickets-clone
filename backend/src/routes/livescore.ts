@@ -44,7 +44,12 @@ async function rapidGet(apiHost: string, path: string): Promise<{ status: number
   const text = await r.text();
   let body: unknown;
   try { body = JSON.parse(text); } catch { body = { raw: text }; }
-  cache.set(cacheKey, { ts: Date.now(), status: r.status, body });
+  // Only cache successful responses. Caching a 429 / 5xx for 60s makes
+  // transient rate-limit errors stick around long after the upstream has
+  // recovered — much worse UX than letting the next click re-try fresh.
+  if (r.status === 200) {
+    cache.set(cacheKey, { ts: Date.now(), status: r.status, body });
+  }
   return { status: r.status, body };
 }
 
@@ -68,11 +73,11 @@ router.get("/search", ...adminOnly, async (req, res) => {
 // ---------- Cricbuzz: list live + upcoming matches ----------
 router.get("/cricbuzz/list", ...adminOnly, async (_req, res) => {
   try {
-    const [live, upcoming] = await Promise.all([
-      rapidGet(CRIC_HOST, "matches/v1/live"),
-      rapidGet(CRIC_HOST, "matches/v1/upcoming"),
-    ]);
+    // Sequential — BASIC RapidAPI plans have a per-second rate limit. Parallel
+    // requests trip it. Serial keeps every call under the burst threshold.
+    const live = await rapidGet(CRIC_HOST, "matches/v1/live");
     if (live.status !== 200) return res.status(live.status).json(live.body);
+    const upcoming = await rapidGet(CRIC_HOST, "matches/v1/upcoming");
     if (upcoming.status !== 200) return res.status(upcoming.status).json(upcoming.body);
     res.json({
       live: flattenCricbuzzLive(live.body),
