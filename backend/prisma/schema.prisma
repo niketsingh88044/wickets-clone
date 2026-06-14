@@ -1,12 +1,14 @@
 // Wickets clone — play-money exchange schema.
-// SQLite for dev; swap provider to "postgresql" for prod.
+// Postgres in prod (Neon / Render Postgres / etc).
+// Local dev: point DATABASE_URL at a Postgres too (a free Neon dev branch
+// works, or `docker run -e POSTGRES_PASSWORD=dev -p 5432:5432 postgres:16`).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
