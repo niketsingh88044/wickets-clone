@@ -1,0 +1,138 @@
+// Wickets clone — play-money exchange schema.
+// SQLite for dev; swap provider to "postgresql" for prod.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(cuid())
+  username     String        @unique
+  passwordHash String
+  role         String        @default("USER")
+  parentId     String?
+  parent       User?         @relation("Hierarchy", fields: [parentId], references: [id])
+  children     User[]        @relation("Hierarchy")
+  createdAt    DateTime      @default(now())
+  wallet       Wallet?
+  bets         Bet[]
+  transactions Transaction[]
+
+  resetRequests  PasswordResetRequest[] @relation("ResetSubject")
+  approvedResets PasswordResetRequest[] @relation("ResetApprover")
+}
+
+model PasswordResetRequest {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation("ResetSubject", fields: [userId], references: [id], onDelete: Cascade)
+  reason       String
+  status       String    @default("PENDING")
+  approvedById String?
+  approvedBy   User?     @relation("ResetApprover", fields: [approvedById], references: [id])
+  approvalNote String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model Wallet {
+  id       String @id @default(cuid())
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance  Float  @default(0)
+  exposure Float  @default(0)
+}
+
+model Transaction {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float
+  type      String
+  note      String?
+  refId     String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model Match {
+  id             String   @id @default(cuid())
+  sport          String
+  name           String
+  startTime      DateTime
+  inPlay         Boolean  @default(false)
+  externalId     String?
+  externalSource String?
+  lastBallNum    Int?
+  // --- Cricbuzz scorecard cache. Admin links the upstream matchId and presses
+  // refresh; the API response is stored here so every page-load reads from DB,
+  // not from RapidAPI.
+  cricbuzzMatchId    Int?
+  liveScore          String?   // raw JSON from /mcenter/v1/{id}/scard
+  liveSummary        String?   // short text like "IRE 150/10, USA 141/7"
+  liveStatus         String?   // upstream "status" string, e.g. "Ireland won by 9 runs"
+  liveScoreUpdatedAt DateTime?
+  markets        Market[]
+
+  @@unique([externalSource, externalId])
+}
+
+model Market {
+  id        String   @id @default(cuid())
+  matchId   String
+  match     Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  name      String
+  type      String
+  status    String   @default("OPEN")
+  minStake  Float    @default(100)
+  maxStake  Float    @default(100000)
+  result    String?
+  createdAt DateTime @default(now())
+  runners   Runner[]
+  bets      Bet[]
+
+  @@index([status, type, createdAt])
+}
+
+model Runner {
+  id       String  @id @default(cuid())
+  marketId String
+  market   Market  @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  name     String
+  sortOrder Int    @default(0)
+  backOdds Float?
+  backSize Float?
+  layOdds  Float?
+  laySize  Float?
+  bets     Bet[]
+}
+
+model Bet {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  marketId        String
+  market          Market    @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  runnerId        String
+  runner          Runner    @relation(fields: [runnerId], references: [id], onDelete: Cascade)
+  side            String
+  odds            Float
+  stake           Float
+  liability       Float
+  potentialPayout Float
+  status          String    @default("OPEN")
+  pnl             Float?
+  createdAt       DateTime  @default(now())
+  settledAt       DateTime?
+
+  @@index([userId, createdAt])
+}

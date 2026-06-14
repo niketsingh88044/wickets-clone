@@ -1,0 +1,95 @@
+# Builds the Angular frontend and publishes it to GitHub Pages.
+# Triggered on every push to main that touches the frontend.
+#
+# After this runs once:
+#   1. In your repo: Settings → Pages → Source = "GitHub Actions"
+#   2. Live URL becomes https://<your-username>.github.io/wickets-clone/
+#
+# If your repo name is NOT "wickets-clone", change BASE_HREF below to match
+# (must start and end with a slash).
+
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/deploy-frontend.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+env:
+  BASE_HREF: /wickets-clone/
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (production, with base-href)
+        run: npx ng build --configuration=production --base-href=${{ env.BASE_HREF }}
+
+      # The build output is under dist/frontend/browser for Angular's
+      # @angular/build builder. Locate it dynamically in case the project name
+      # changes later.
+      - name: Locate built assets
+        id: dist
+        run: |
+          DIST_DIR=$(find dist -mindepth 2 -maxdepth 2 -type d -name browser | head -n 1)
+          if [ -z "$DIST_DIR" ]; then
+            echo "Could not find browser dist directory" >&2
+            find dist -maxdepth 3 -type d
+            exit 1
+          fi
+          echo "dist_dir=$DIST_DIR" >> "$GITHUB_OUTPUT"
+          echo "Built into: $DIST_DIR"
+
+      # GitHub Pages serves the file at the requested path or 404.html for
+      # anything missing. Cloning index.html → 404.html lets Angular's client-
+      # side router handle deep links like /admin or /match/:id.
+      - name: Add SPA fallback (404.html)
+        run: cp ${{ steps.dist.outputs.dist_dir }}/index.html ${{ steps.dist.outputs.dist_dir }}/404.html
+
+      # Prevent Jekyll from mangling any file starting with _ in the deployed
+      # output. Angular doesn't emit any today but this is a safe one-liner.
+      - name: Disable Jekyll
+        run: touch ${{ steps.dist.outputs.dist_dir }}/.nojekyll
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/${{ steps.dist.outputs.dist_dir }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
